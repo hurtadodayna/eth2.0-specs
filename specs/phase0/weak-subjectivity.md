@@ -63,35 +63,53 @@ a safety margin of at least `1/3 - SAFETY_DECAY/100`.
 *Note*: `compute_weak_subjectivity_period()` is planned to be updated when a more accurate calculation is made.
 
 ```python
+def get_active_validator_count(state: BeaconState) -> uint64:
+    active_validator_count = len(get_active_validator_indices(state, get_current_epoch(state)))
+    return active_validator_count
+
+def get_average_active_validator_balance(state: BeaconState) -> Gwei:
+    total_active_balance = get_total_active_balance(state)
+    active_validator_count = get_active_validator_count(state)
+    average_active_validator_balance = total_active_balance // active_validator_count
+    return average_active_validator_balance
+
 def compute_weak_subjectivity_period(state: BeaconState) -> uint64:
     weak_subjectivity_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
-    validator_count = len(get_active_validator_indices(state, get_current_epoch(state)))
-    if validator_count >= MIN_PER_EPOCH_CHURN_LIMIT * CHURN_LIMIT_QUOTIENT:
-        weak_subjectivity_period += SAFETY_DECAY * CHURN_LIMIT_QUOTIENT // (2 * 100)
-    else:
-        weak_subjectivity_period += SAFETY_DECAY * validator_count // (2 * 100 * MIN_PER_EPOCH_CHURN_LIMIT)
+    validator_count = get_active_validator_count(state)
+    average_active_validator_balance = get_average_active_validator_balance(state)
+    # Term appearing in the weak subjectivity period calculation due to top-up limits
+    top_up_term = MAX_DEPOSITS * SLOTS_PER_EPOCH * (MAX_EFFECTIVE_BALANCE - average_active_validator_balance)
+    # Term appearing in the weak subjectivity period calculation due to deposits
+    deposit_term = get_validator_churn_limit(state) * (MAX_EFFECTIVE_BALANCE + 2 * average_active_validator_balance)
+    weak_subjectivity_period += (3 * SAFETY_DECAY * validator_count * average_active_validator_balance) // (2 * 100 * (deposit_term + top_up_term))
     return weak_subjectivity_period
 ```
 
 *Details about the calculation*:
-- `100` appears in the denominator to get the actual percentage ratio from `SAFETY_DECAY`
+- TODO: Provide detailed calculation document
 - For more information about other terms in this equation, refer to
   [Weak Subjectivity in Eth2.0](https://notes.ethereum.org/@adiasg/weak-subjectvity-eth2)
 
 A brief reference for what these values look like in practice:
 
-| `validator_count` | `weak_subjectivity_period` |
-| ----  | ---- |
-| 1024  | 268 |
-| 2048  | 281 |
-| 4096  | 307 |
-| 8192  | 358 |
-| 16384 | 460 |
-| 32768 | 665 |
-| 65536 | 1075 |
-| 131072  | 1894 |
-| 262144  | 3532 |
-| 524288  | 3532 |
+| SAFETY_DECAY | average_active_validator_balance | validator_count | weak_subjectivity_period |
+| ---- | ---- | ---- | ---- |
+| 10 | 24000000000 | 8192 | 262 |
+| 10 | 24000000000 | 16384 | 269 |
+| 10 | 24000000000 | 32768 | 282 |
+| 10 | 28000000000 | 8192 | 270 |
+| 10 | 28000000000 | 16384 | 284 |
+| 10 | 28000000000 | 32768 | 313 |
+| 10 | 32000000000 | 8192 | 358 |
+| 10 | 32000000000 | 16384 | 460 |
+| 10 | 32000000000 | 32768 | 665 |
+| 20 | 24000000000 | 16384 | 282 |
+| 20 | 28000000000 | 16384 | 313 |
+| 20 | 32000000000 | 16384 | 665 |
+| 33 | 24000000000 | 16384 | 300 |
+| 33 | 28000000000 | 16384 | 350 |
+| 33 | 32000000000 | 16384 | 931 |
+
 
 ## Weak Subjectivity Sync
 
